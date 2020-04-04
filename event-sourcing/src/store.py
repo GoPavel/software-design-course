@@ -33,28 +33,45 @@ class StrEnumType(schematics.types.BaseType):
         self.enum_cls = enum_cls
 
     def to_primitive(self, value, context=None):
-        return value.value.encode()
+        return value.value
 
     def to_native(self, value, context=None):
-        return self.enum_cls(value.decode())
+        if isinstance(value, bytes):
+            value = value.decode()
+        return self.enum_cls(value)
+
+
+class MongoObjectIdType(schematics.models.BaseType):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    # TODO
 
 
 class Event(schematics.Model):
+    # _id = MongoObjectIdType()
     type = StrEnumType(EventType)
     # revision = schematics.types.IntType()
     object_name = schematics.types.StringType()
-    timestamp = schematics.types.TimestampType()
+    timestamp = schematics.types.TimestampType(drop_tzinfo=True)
     client_name = schematics.types.StringType()
+
+    def validate_call_me(self, value):
+        del value['_id']
 
 
 class MongoEventStoreBase:
     def __init__(self, collection_name: str):
-        self.db_client = aiomotor.AsyncIOMotorClient('localhost', 27017)
+        self._mongo_client = aiomotor.AsyncIOMotorClient('localhost', 27017)
+        self._db = self._mongo_client['event-source-hw']
+        self._coll = self._db[collection_name]
         self._coll_name = collection_name
-        self.coll = self.db_client[collection_name]
 
     @property
-    def collection_name(self) -> str:
+    def db_client(self) -> aiomotor.AsyncIOMotorDatabase:
+        return self._db
+
+    @property
+    def collection(self) -> aiomotor.AsyncIOMotorCollection:
         return self._coll_name
 
 
@@ -64,8 +81,8 @@ class EventWriter(MongoEventStoreBase):
         super().__init__(collection_name)
 
     async def push_event(self, event: Event):
-        logger.debug("Push event: %", event)
-        await self.coll.insert_one(event.to_native())
+        logger.debug("Push event: %s", event.to_primitive())
+        await self._coll.insert_one(event.to_primitive())
 
 
 class EventReader(MongoEventStoreBase):
@@ -74,10 +91,14 @@ class EventReader(MongoEventStoreBase):
         super().__init__(collection_name)
 
     async def find_latest_event(self, type: EventType, object_name: str) -> Event:
-        doc = await self.coll.find({'type': type.value}) \
-            .sort('timestamp', pymongo.DESCENDING) \
-            .limit(1)
-        return type.to_cls()(doc)
+        logger.debug("find latest event with type \"%s\", for object %s", type.value, object_name)
+        cursor = self._coll \
+            .find({'type': type.value}) \
+            .sort('timestamp', pymongo.DESCENDING)
+        async for doc in cursor:
+            if not doc:
+                raise RuntimeError(f"Can't find any \"{type.value}\" event for object \"{object_name}\"")
+            return type.to_cls()(doc)
 
 
 class EventReaderWriter(EventReader, EventWriter):
