@@ -12,6 +12,11 @@ When we create a new event type, we must register it to `EVENT_TYPE_TO_EVENT_CLA
 It allows Mongo client to deserialize and validate documents. But so the success of deserialization 
 depend on loaded models (from other modules).
 
+##### CQRS
+
+If service needs only read-only query to event-database then it can use `EventReader` or make subclass. Also potentially, it allows using different data models over `EventReader` and `EventWriter`.
+
+.
 #### Example
 
 ```bash
