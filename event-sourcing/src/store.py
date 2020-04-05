@@ -76,7 +76,6 @@ class MongoEventStoreBase:
 
 
 class EventWriter(MongoEventStoreBase):
-
     def __init__(self, collection_name: str):
         super().__init__(collection_name)
 
@@ -90,7 +89,7 @@ class EventReader(MongoEventStoreBase):
     def __init__(self, collection_name: str):
         super().__init__(collection_name)
 
-    async def find_latest_event(self, type: EventType, object_name: str) -> Event:
+    async def find_latest_event(self, type: EventType, object_name: str) -> Optional[Event]:
         logger.debug("find latest event with type \"%s\", for object %s", type.value, object_name)
         cursor = self._coll \
             .find({'type': type.value}) \
@@ -99,6 +98,7 @@ class EventReader(MongoEventStoreBase):
             if not doc:
                 raise RuntimeError(f"Can't find any \"{type.value}\" event for object \"{object_name}\"")
             return type.to_cls()(doc)
+        return None
 
 
 class EventReaderWriter(EventReader, EventWriter):
