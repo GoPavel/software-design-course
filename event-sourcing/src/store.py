@@ -1,14 +1,13 @@
-import attr
-from uuid import UUID
-from typing import Optional, Any, Dict, Type
 import enum
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Type
 
+import motor.motor_asyncio as aiomotor
 import pymongo
 import schematics
-import logging
 
-import motor
-import motor.motor_asyncio as aiomotor
+from models import ConstStringType
 
 logger = logging.getLogger(__name__)
 
@@ -17,28 +16,6 @@ logger = logging.getLogger(__name__)
 
 class EventType(str, enum.Enum):
     pass
-
-    def to_cls(self) -> Type:
-        raise NotImplementedError
-
-
-class StrEnumType(schematics.types.BaseType):
-    def __init__(self, enum_cls: Type[enum.Enum], *args, **kwargs):
-        if not issubclass(enum_cls, enum.Enum):
-            raise TypeError("Expected enum class")
-        if not issubclass(enum_cls, str):
-            raise TypeError("Expected string enum class")
-
-        super().__init__(*args, **kwargs)
-        self.enum_cls = enum_cls
-
-    def to_primitive(self, value, context=None):
-        return value.value
-
-    def to_native(self, value, context=None):
-        if isinstance(value, bytes):
-            value = value.decode()
-        return self.enum_cls(value)
 
 
 class MongoObjectIdType(schematics.models.BaseType):
@@ -49,35 +26,30 @@ class MongoObjectIdType(schematics.models.BaseType):
 
 class Event(schematics.Model):
     # _id = MongoObjectIdType()
-    type = StrEnumType(EventType)
+    type = ConstStringType("")
     # revision = schematics.types.IntType()
     object_name = schematics.types.StringType()
     timestamp = schematics.types.TimestampType(drop_tzinfo=True)
     client_name = schematics.types.StringType()
 
-    def validate_call_me(self, value):
-        del value['_id']
+    def validate_type(self, value, context=None):
+        if not value['type']:
+            raise schematics.types.ValidationError('Empty type')
+
+
+EVENT_TYPE_TO_EVENT_CLASS: Dict[str, Type[Event]] = {}
 
 
 class MongoEventStoreBase:
-    def __init__(self, collection_name: str):
+    def __init__(self, db_name: str):
         self._mongo_client = aiomotor.AsyncIOMotorClient('localhost', 27017)
-        self._db = self._mongo_client['event-source-hw']
-        self._coll = self._db[collection_name]
-        self._coll_name = collection_name
-
-    @property
-    def db_client(self) -> aiomotor.AsyncIOMotorDatabase:
-        return self._db
-
-    @property
-    def collection(self) -> aiomotor.AsyncIOMotorCollection:
-        return self._coll_name
+        self._db = self._mongo_client[db_name]
+        self._coll = self._db['events']
 
 
 class EventWriter(MongoEventStoreBase):
-    def __init__(self, collection_name: str):
-        super().__init__(collection_name)
+    def __init__(self, db_name: str):
+        super().__init__(db_name)
 
     async def push_event(self, event: Event):
         logger.debug("Push event: %s", event.to_primitive())
@@ -86,21 +58,42 @@ class EventWriter(MongoEventStoreBase):
 
 class EventReader(MongoEventStoreBase):
 
-    def __init__(self, collection_name: str):
-        super().__init__(collection_name)
+    def __init__(self, db_name: str):
+        super().__init__(db_name)
 
     async def find_latest_event(self, type: EventType, object_name: str) -> Optional[Event]:
         logger.debug("find latest event with type \"%s\", for object %s", type.value, object_name)
         cursor = self._coll \
-            .find({'type': type.value}) \
+            .find({'type': type.value, 'object_name': object_name},
+                  projection={'_id': False}) \
             .sort('timestamp', pymongo.DESCENDING)
         async for doc in cursor:
             if not doc:
                 raise RuntimeError(f"Can't find any \"{type.value}\" event for object \"{object_name}\"")
-            return type.to_cls()(doc)
+            event = EVENT_TYPE_TO_EVENT_CLASS[type.value](doc)
+            print(event.to_primitive())
+            event.validate()
+            return event
         return None
+
+    async def find_all(self, *, from_time: datetime, to_time: datetime):
+        cursor = self._coll \
+            .find(
+            {'$and': [
+                {'timestamp': {'$gte': from_time.timestamp()}},
+                {'timestamp': {'$lte': to_time.timestamp()}},
+            ]},
+            projection={'_id': False}) \
+            .sort('timestamp')
+        async for doc in cursor:
+            if doc['type'] not in EVENT_TYPE_TO_EVENT_CLASS:
+                logger.warning(f"Unknown type of event: {doc['type']}")
+                continue
+            event = EVENT_TYPE_TO_EVENT_CLASS[doc['type']](doc)
+            event.validate()
+            yield event
 
 
 class EventReaderWriter(EventReader, EventWriter):
-    def __init__(self, collection_name: str):
-        super().__init__(collection_name)
+    def __init__(self, db_name: str):
+        super().__init__(db_name)

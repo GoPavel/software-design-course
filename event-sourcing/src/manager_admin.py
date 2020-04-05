@@ -4,11 +4,11 @@ import logging
 import random
 import sys
 from datetime import datetime, timedelta
-from typing import Type
 
 import schematics
 
-from store import EventReaderWriter, EventType, Event, StrEnumType
+from models import ConstStringType
+from store import EventReaderWriter, EventType, Event, EVENT_TYPE_TO_EVENT_CLASS
 
 logger = logging.getLogger("manager_admin")
 
@@ -17,23 +17,20 @@ class AdminEventType(EventType):
     Create = "create"
     Extend = "extend"
 
-    def to_cls(self) -> Type:
-        if self == AdminEventType.Create:
-            return CreateTicketEvent
-        elif self == AdminEventType.Extend:
-            return ExtendTicketEvent
-        raise ValueError(f"Can't convert {self} to class")
-
 
 class CreateTicketEvent(Event):
-    type = StrEnumType(AdminEventType)
+    type = ConstStringType(AdminEventType.Create)
     user_name = schematics.types.StringType()
     deadline = schematics.types.DateTimeType(serialized_format='%Y-%m-%d %H:%M:%S', drop_tzinfo=True)
 
 
 class ExtendTicketEvent(Event):
-    type = StrEnumType(AdminEventType)
-    deadline = schematics.types.DateTimeType(serialized_format='%y-%m-%d %H:%M:%S', drop_tzinfo=True)
+    type = ConstStringType(AdminEventType.Extend)
+    deadline = schematics.types.DateTimeType(serialized_format='%Y-%m-%d %H:%M:%S', drop_tzinfo=True)
+
+
+EVENT_TYPE_TO_EVENT_CLASS[AdminEventType.Create] = CreateTicketEvent  # TODO add subclass_hook for it
+EVENT_TYPE_TO_EVENT_CLASS[AdminEventType.Extend] = ExtendTicketEvent
 
 
 class AdminClient:
@@ -56,7 +53,7 @@ class AdminClient:
             'type': AdminEventType.Create.value,
             'object_name': str(ticket_no),
             'timestamp': t,
-            'client_name': 'admin', # TODO: capture to EventStore class
+            'client_name': 'admin',  # TODO: capture to EventStore class
             'user_name': user_name,
             'deadline': t + timedelta(days=day_duration),
         })
@@ -79,16 +76,16 @@ class AdminClient:
 
 
 async def main(args):
-    store = EventReaderWriter('tickets')
+    store = EventReaderWriter(db_name='event-source-hw')
     admin = AdminClient(store)
     if args.command == 'info':
         info = await admin.info(args.no)
         print(info)
     elif args.command == 'create':
-        no = await admin.create_ticket(args.name, args.hours)
+        no = await admin.create_ticket(args.name, args.days)
         print(f"Ticket created with number: {no}")
     elif args.command == 'extend':
-        await admin.extend_ticket(args.id, args.hours)
+        await admin.extend_ticket(args.id, args.days)
     else:
         raise RuntimeError("Unexpected sub-command")
 

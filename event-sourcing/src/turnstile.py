@@ -1,15 +1,12 @@
 import argparse
 import asyncio
 import logging
-import random
 import sys
 from datetime import datetime
-from typing import Type
-
-import schematics
 
 from manager_admin import AdminEventType
-from store import EventReaderWriter, EventType, Event, StrEnumType
+from models import ConstStringType
+from store import EventReaderWriter, EventType, Event, EVENT_TYPE_TO_EVENT_CLASS
 
 logger = logging.getLogger("turnstile")
 
@@ -18,17 +15,17 @@ class TurnstileEventType(EventType):
     CameIn = 'came_in'
     Leave = 'leave'
 
-    def to_cls(self) -> Type:
-        # if self ==
-        pass
-
 
 class CameInEvent(Event):
-    type = StrEnumType(TurnstileEventType)
+    type = ConstStringType(TurnstileEventType.CameIn)
 
 
 class LeaveEvent(Event):
-    type = StrEnumType(TurnstileEventType)
+    type = ConstStringType(TurnstileEventType.Leave)
+
+
+EVENT_TYPE_TO_EVENT_CLASS[TurnstileEventType.CameIn] = CameInEvent
+EVENT_TYPE_TO_EVENT_CLASS[TurnstileEventType.Leave] = LeaveEvent
 
 
 class TurnstileClient:
@@ -51,7 +48,7 @@ class TurnstileClient:
         t = datetime.now()
         if not await self._check_deadline(no, t):
             return False
-        event = LeaveEvent({
+        event = CameInEvent({
             'type': TurnstileEventType.CameIn,
             'object_name': no,
             'timestamp': t,
@@ -72,7 +69,7 @@ class TurnstileClient:
 
 
 async def main(args):
-    store = EventReaderWriter('tickets')
+    store = EventReaderWriter(db_name='event-source-hw')
     turnstile = TurnstileClient(store)
     if getattr(args, 'in'):
         succ = await turnstile.came_in(args.no)
