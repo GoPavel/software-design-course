@@ -1,12 +1,11 @@
 from datetime import datetime, timedelta
 
 import pytest
-import asyncio
 from asynctest.mock import CoroutineMock, Mock
 
-from manager_admin import CreateTicketEvent, AdminClient, AdminEventType, ExtendTicketEvent
+from manager_admin import CreateTicketEvent, AdminEventType, ExtendTicketEvent
 from store import EventReaderWriter
-from turnstile import TurnstileClient, TurnstileEventType
+from turnstile import TurnstileService, TurnstileEventType
 
 
 @pytest.mark.asyncio
@@ -23,11 +22,11 @@ async def test_check_deadline_1():
     })
     store = Mock(EventReaderWriter)
     store.find_latest_event = CoroutineMock(side_effect=[None, create_event])
-    assert await TurnstileClient(store)._check_deadline('42', t + timedelta(days=1))
+    assert await TurnstileService(store)._check_deadline('42', t + timedelta(days=1))
     store.find_latest_event.assert_awaited_with(AdminEventType.Create, '42')
 
     store.find_latest_event = CoroutineMock(side_effect=[None, create_event])
-    assert not await TurnstileClient(store)._check_deadline('42', t + timedelta(days=3))
+    assert not await TurnstileService(store)._check_deadline('42', t + timedelta(days=3))
     store.find_latest_event.assert_awaited_with(AdminEventType.Create, '42')
 
 
@@ -44,11 +43,11 @@ async def test_check_deadline_2():
     })
     store = Mock(EventReaderWriter)
     store.find_latest_event = CoroutineMock(return_value=create_event)
-    assert await TurnstileClient(store)._check_deadline('42', t + timedelta(days=1))
+    assert await TurnstileService(store)._check_deadline('42', t + timedelta(days=1))
     store.find_latest_event.assert_awaited_once_with(AdminEventType.Extend, '42')
 
     store.find_latest_event = CoroutineMock(return_value=create_event)
-    assert not await TurnstileClient(store)._check_deadline('42', t + timedelta(days=3))
+    assert not await TurnstileService(store)._check_deadline('42', t + timedelta(days=3))
     store.find_latest_event.assert_awaited_once_with(AdminEventType.Extend, '42')
 
 
@@ -56,7 +55,7 @@ async def test_check_deadline_2():
 async def test_came_in_1():
     store = Mock(EventReaderWriter)
     store.push_event = CoroutineMock()
-    turnstile = TurnstileClient(store)
+    turnstile = TurnstileService(store)
     turnstile._check_deadline = CoroutineMock(return_value=False)
 
     assert not await turnstile.came_in('42')
@@ -69,7 +68,7 @@ async def test_came_in_1():
 async def test_came_in_2():
     store = Mock(EventReaderWriter)
     store.push_event = CoroutineMock()
-    turnstile = TurnstileClient(store)
+    turnstile = TurnstileService(store)
     turnstile._check_deadline = CoroutineMock(return_value=True)
 
     assert await turnstile.came_in('42')
@@ -85,7 +84,7 @@ async def test_came_in_2():
 async def test_leave():
     store = Mock(EventReaderWriter)
     store.push_event = CoroutineMock()
-    turnstile = TurnstileClient(store)
+    turnstile = TurnstileService(store)
 
     await turnstile.leave('42')
     store.push_event.assert_awaited_once()

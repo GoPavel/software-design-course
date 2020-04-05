@@ -28,7 +28,7 @@ EVENT_TYPE_TO_EVENT_CLASS[TurnstileEventType.CameIn] = CameInEvent
 EVENT_TYPE_TO_EVENT_CLASS[TurnstileEventType.Leave] = LeaveEvent
 
 
-class TurnstileClient:
+class TurnstileService:
 
     def __init__(self, store: EventReaderWriter):
         self.store = store
@@ -70,7 +70,7 @@ class TurnstileClient:
 
 async def main(args):
     store = EventReaderWriter(db_name='event-source-hw')
-    turnstile = TurnstileClient(store)
+    turnstile = TurnstileService(store)
     if getattr(args, 'in'):
         succ = await turnstile.came_in(args.no)
         print("OK" if succ else "FAIL")

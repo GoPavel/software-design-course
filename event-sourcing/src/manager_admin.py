@@ -33,7 +33,7 @@ EVENT_TYPE_TO_EVENT_CLASS[AdminEventType.Create] = CreateTicketEvent  # TODO add
 EVENT_TYPE_TO_EVENT_CLASS[AdminEventType.Extend] = ExtendTicketEvent
 
 
-class AdminClient:
+class AdminService:
     def __init__(self, store: EventReaderWriter):
         self.store = store
 
@@ -77,7 +77,7 @@ class AdminClient:
 
 async def main(args):
     store = EventReaderWriter(db_name='event-source-hw')
-    admin = AdminClient(store)
+    admin = AdminService(store)
     if args.command == 'info':
         info = await admin.info(args.no)
         print(info)

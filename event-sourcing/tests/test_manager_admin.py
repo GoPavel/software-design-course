@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta
 
 import pytest
-import asyncio
 from asynctest.mock import CoroutineMock, Mock
 
-from manager_admin import CreateTicketEvent, AdminClient, AdminEventType
+from manager_admin import CreateTicketEvent, AdminService, AdminEventType
 from store import EventReaderWriter
 
 
@@ -22,7 +21,7 @@ async def test_info():
     })
     store = Mock(EventReaderWriter)
     store.find_latest_event = CoroutineMock(return_value=create_event)
-    res = await AdminClient(store).info('42')
+    res = await AdminService(store).info('42')
     assert res == {'user_name': 'Bob', 'deadline': str(t + dt)}
     store.find_latest_event.assert_awaited_once_with(AdminEventType.Create, '42')
 
@@ -31,7 +30,7 @@ async def test_info():
 async def test_create_ticket():
     store = Mock(EventReaderWriter)
     store.push_event = CoroutineMock()
-    await AdminClient(store).create_ticket('Bob', 1)
+    await AdminService(store).create_ticket('Bob', 1)
     store.push_event.assert_awaited_once()
     event = store.push_event.await_args[0][0] # TODO
     assert event.user_name == 'Bob'
@@ -43,7 +42,7 @@ async def test_create_ticket():
 async def test_extend_ticket():
     store = Mock(EventReaderWriter)
     store.push_event = CoroutineMock()
-    await AdminClient(store).extend_ticket('42', 1)
+    await AdminService(store).extend_ticket('42', 1)
     store.push_event.assert_awaited_once()
     event = store.push_event.await_args[0][0]
     assert event.type == AdminEventType.Extend
